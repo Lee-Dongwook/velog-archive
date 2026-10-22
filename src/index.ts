@@ -1,8 +1,8 @@
 import path from "node:path";
-import { fetchPost, fetchPostList, mapPost } from "./velog.js";
+import { fetchPost, fetchPostList } from "./velog.js";
 import { serializePost } from "./markdown.js";
 import { savePost } from "./storage.js";
-import type { VelogPost, SyncResult } from "./types.js";
+import type { SyncResult } from "./types.js";
 
 const username = process.env.VELOG_USERNAME;
 
@@ -22,24 +22,36 @@ async function main(username: string): Promise<void> {
     failed: 0,
   };
 
-  const seen = new Set<string>();
+  const seenIds = new Set<string>();
+  const seenCursors = new Set<string>();
+
   let cursor: string | undefined;
+  let page = 0;
   const limit = 20;
 
   try {
     while (true) {
+      page++;
+
+      console.log(`페이지 ${page} 조회 중... cursor=${cursor ?? "START"}`);
+
       const posts = await fetchPostList(username, cursor, limit);
 
       if (posts.length === 0) {
+        console.log("더 이상 게시물이 없습니다.");
         break;
       }
 
+      let newPostsInPage = 0;
+
       for (const item of posts) {
-        if (seen.has(item.id)) {
-          throw new Error(`중복 게시물 ID 발견: ${item.id}`);
+        if (seenIds.has(item.id)) {
+          console.warn(`[중복 게시물] id=${item.id}, title=${item.title}`);
+          continue;
         }
 
-        seen.add(item.id);
+        seenIds.add(item.id);
+        newPostsInPage++;
         result.discovered++;
 
         try {
@@ -62,13 +74,34 @@ async function main(username: string): Promise<void> {
           const status = await savePost(filePath, serializePost(post));
 
           result[status]++;
+          console.log(`[${status}] ${post.title}`);
         } catch (error) {
           result.failed++;
           console.error(`게시물 처리 실패: ${item.id}`, error);
         }
       }
+      if (newPostsInPage === 0) {
+        throw new Error(
+          "새 게시물이 없는 페이지가 반환됐습니다. cursor 규칙을 확인하세요.",
+        );
+      }
+
+      const nextCursor = posts[posts.length - 1]?.id;
+
+      if (seenCursors.has(nextCursor!)) {
+        throw new Error(`페이지네이션 cursor 반복: ${nextCursor}`);
+      }
+
+      seenCursors.add(nextCursor!);
+
+      if (posts.length < limit) {
+        break;
+      }
+
+      cursor = nextCursor;
     }
 
+    console.log("\n수집 결과");
     console.table(result);
 
     if (result.failed > 0) {
