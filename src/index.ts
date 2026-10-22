@@ -1,5 +1,5 @@
 import path from "node:path";
-import { fetchPostList, mapPost } from "./velog.js";
+import { fetchPost, fetchPostList, mapPost } from "./velog.js";
 import { serializePost } from "./markdown.js";
 import { savePost } from "./storage.js";
 import type { VelogPost, SyncResult } from "./types.js";
@@ -43,14 +43,7 @@ async function main(username: string): Promise<void> {
         result.discovered++;
 
         try {
-          const metadata = mapPost(item, username);
-
-          // 현재 API 예시는 목록 본문을 가져오지 않으므로,
-          // 본문 수집을 구현하기 전까지는 빈 본문을 저장하지 않는다.
-          const post: VelogPost = {
-            ...metadata,
-            body: "",
-          };
+          const post = await fetchPost(username, item.url_slug);
 
           const year = new Date(post.publishedAt).getFullYear();
 
@@ -74,10 +67,6 @@ async function main(username: string): Promise<void> {
           console.error(`게시물 처리 실패: ${item.id}`, error);
         }
       }
-
-      // 실제 API의 페이지네이션 규칙을 확인한 후 교체해야 한다.
-      // 이 예시는 완전한 전체 수집을 보장하지 않는다.
-      break;
     }
 
     console.table(result);
